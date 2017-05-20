@@ -38,7 +38,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.functions.{col, lit}
 import org.apache.spark.storage.StorageLevel
-import org.apache.spark.ml.{HasModelDb, CanCache, LogisticRegressionSpec, WahooContext}
+//import org.apache.spark.ml.{HasModelDb, CanCache, LogisticRegressionSpec, WahooContext}
 
 /**
  * Params for logistic regression.
