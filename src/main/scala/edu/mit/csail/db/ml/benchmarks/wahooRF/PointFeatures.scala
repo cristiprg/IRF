@@ -8,6 +8,8 @@ import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
 import org.apache.spark.sql.types.{DataTypes, Metadata, StructField, StructType}
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.sql.{DataFrame, SQLContext}
+import org.apache.spark.sql.functions._
+
 
 /**
   * Created by cristiprg on 20.05.17.
@@ -25,7 +27,15 @@ object PointFeatures {
 
     val trainingDataPath = "/media/cristiprg/Eu/YadoVR/pointFeatures.csv"
 
-    val df = loadPointFeaturesCSV(trainingDataPath, sqlContext)
+    var df = loadPointFeaturesCSV(trainingDataPath, sqlContext)
+
+
+    // transform the problem into a binary classification problem
+    // Detect Ground only
+    // https://stackoverflow.com/questions/30219592/create-new-column-with-function-in-spark-dataframe
+    val coder = (trueLabel: String) => {if (trueLabel == "1") trueLabel else "0"}
+    val sqlfunc = udf(coder)
+    df = df.withColumn("binaryLabel", sqlfunc(col("label")))
 
     df.printSchema()
     df.show()
@@ -33,11 +43,11 @@ object PointFeatures {
     // https://spark.apache.org/docs/1.5.2/ml-ensembles.html#random-forests
 
     // Split the data into training and test sets (30% held out for testing)
-    val Array(trainingData, testData) = df.randomSplit(Array(0.7, 0.3))
+    val Array(trainingData, trainingData2, testData) = df.randomSplit(Array(0.002, 0.698, 0.3))
 
 
     val labelIndexer = new StringIndexer()
-      .setInputCol("label")
+      .setInputCol("binaryLabel")
       .setOutputCol("indexedLabel")
       .fit(df)
 
@@ -46,22 +56,31 @@ object PointFeatures {
       .setInputCols(Array("PF_Linearity", "PF_Planarity", "PF_Scattering", "PF_Omnivariance", "PF_Eigenentropy", "PF_Anisotropy", "PF_CurvatureChange", "PF_AbsoluteHeight", "PF_LocalPointDensity3D", "PF_LocalRadius3D", "PF_MaxHeightDiff3D", "PF_HeightVar3D", "PF_LocalRadius2D", "PF_SumEigenvalues2D", "PF_RatioEigenvalues2D", "PF_MAccu2D", "PF_MaxHeightDiffAccu2D", "PF_VarianceAccu2D"))
       .setOutputCol("indexedFeatures")
 
-    val rf = new org.apache.spark.ml.classification.RandomForestClassifier()
+    val processedTrainingData = featureAssembler.transform(labelIndexer.transform(trainingData))
+    val processedTrainingData2 = featureAssembler.transform(labelIndexer.transform(trainingData2))
+
+    //val rf = new org.apache.spark.ml.classification.RandomForestClassifier()
+    val rf = new org.apache.spark.ml.wahoo.WahooRandomForestClassifier()
       .setLabelCol("indexedLabel")
       .setFeaturesCol("indexedFeatures")
       .setNumTrees(100)
+
+    rf.regrowProp = 0.5
+    rf.incrementalProp = 0.5
 
     val labelConverter = new IndexToString()
       .setInputCol("prediction")
       .setOutputCol("predictedLabel")
       .setLabels(labelIndexer.labels)
 
-    val pipeline = new Pipeline()
-      .setStages(Array(labelIndexer, featureAssembler, rf, labelConverter))
+    val processedTestData = featureAssembler.transform(labelIndexer.transform(testData))
 
-    val model = pipeline.fit(trainingData)
+    val model = rf.fit(processedTrainingData)
 
-    val predictions = model.transform(testData)
+    val predictions = labelConverter.transform(
+      model.transform(processedTestData)
+    )
+
     predictions.select("predictedLabel", "label", "indexedFeatures").show(5)
 
     val evaluator = new MulticlassClassificationEvaluator()
@@ -71,6 +90,17 @@ object PointFeatures {
 
     val accuracy = evaluator.evaluate(predictions)
     println("test error = " + (1.0 - accuracy))
+
+    // update model with new batch
+    // test now with the same training set, so the accuracy should theoretically increase and overfit
+    val model2 = rf.update(model.asInstanceOf[org.apache.spark.ml.wahoo.RandomForestClassificationModel], processedTrainingData2)
+
+    val predictions2 = labelConverter.transform(
+      model2.transform(processedTestData)
+    )
+
+    val accuracy2 = evaluator.evaluate(predictions2)
+    println("test error2 = " + (1.0 - accuracy2))
 
   }
 
