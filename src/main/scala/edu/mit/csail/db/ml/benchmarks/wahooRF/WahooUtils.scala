@@ -1,11 +1,11 @@
 package edu.mit.csail.db.ml.benchmarks.wahoo
 
-import org.apache.spark.ml.{Transformer, Estimator, PipelineStage}
+import org.apache.spark.ml.{Estimator, PipelineStage, Transformer}
 import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
-import org.apache.spark.ml.feature.{VectorAssembler, OneHotEncoder, StringIndexer}
-import org.apache.spark.sql.types.{StringType, StructField, DoubleType, IntegerType}
+import org.apache.spark.ml.feature.{OneHotEncoder, StringIndexer, VectorAssembler}
+import org.apache.spark.sql.types._
 import org.apache.spark.SparkContext
-import org.apache.spark.sql.{SQLContext, DataFrame}
+import org.apache.spark.sql.{DataFrame, SQLContext}
 
 /**
   * Created by kathrynsiegel on 2/21/16.
@@ -19,6 +19,16 @@ object WahooUtils {
       .format("com.databricks.spark.csv")
       .option("header", "true") // use first line of file as header
       .option("inferSchema", "true") // automatically infer data types
+      .load(trainingDataPath)
+  }
+
+  def readData(trainingDataPath: String, sqlContext: SQLContext, customSchema: StructType): DataFrame = {
+    // Read data and convert to dataframe
+    sqlContext.read
+      .format("com.databricks.spark.csv")
+      .option("header", "true") // use first line of file as header
+      .schema(customSchema)
+      .option("mode", "DROPMALFORMED")
       .load(trainingDataPath)
   }
 
