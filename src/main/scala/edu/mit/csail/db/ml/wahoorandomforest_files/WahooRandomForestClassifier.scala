@@ -157,6 +157,7 @@ class WahooRandomForestClassifier(override val uid: String) extends RandomForest
     new RandomForestClassificationModel(updatedTrees ++
       maintainedTrees, numFeatures, numClasses,
       oldModel.splits, oldModel.metadata, wahooStrategy)
+      .setFeaturesCol($(featuresCol))
   }
 
   /**
