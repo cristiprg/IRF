@@ -23,6 +23,7 @@ object PointFeatures {
       .set("spark.driver.allowMultipleContexts", "true")
 
     val sc = new SparkContext(conf)
+    sc.setLogLevel("WARN")
     val sqlContext = new SQLContext(sc)
 
     val trainingDataPath = "/media/cristiprg/Eu/YadoVR/pointFeatures.csv"
@@ -33,19 +34,12 @@ object PointFeatures {
     // transform the problem into a binary classification problem
     // Detect Ground only
     // https://stackoverflow.com/questions/30219592/create-new-column-with-function-in-spark-dataframe
-    val coder = (trueLabel: String) => {if (trueLabel == "1") trueLabel else "0"}
+    val coder = (trueLabel: String) => {if (trueLabel == "0") trueLabel else "1"}
     val sqlfunc = udf(coder)
     df = df.withColumn("binaryLabel", sqlfunc(col("label")))
 
-    df.printSchema()
-    df.show()
 
-    // https://spark.apache.org/docs/1.5.2/ml-ensembles.html#random-forests
-
-    // Split the data into training and test sets (30% held out for testing)
-    val Array(trainingData, trainingData2, testData) = df.randomSplit(Array(0.002, 0.698, 0.3))
-
-
+    // Initialize pipeline elements
     val labelIndexer = new StringIndexer()
       .setInputCol("binaryLabel")
       .setOutputCol("indexedLabel")
@@ -56,52 +50,74 @@ object PointFeatures {
       .setInputCols(Array("PF_Linearity", "PF_Planarity", "PF_Scattering", "PF_Omnivariance", "PF_Eigenentropy", "PF_Anisotropy", "PF_CurvatureChange", "PF_AbsoluteHeight", "PF_LocalPointDensity3D", "PF_LocalRadius3D", "PF_MaxHeightDiff3D", "PF_HeightVar3D", "PF_LocalRadius2D", "PF_SumEigenvalues2D", "PF_RatioEigenvalues2D", "PF_MAccu2D", "PF_MaxHeightDiffAccu2D", "PF_VarianceAccu2D"))
       .setOutputCol("indexedFeatures")
 
-    val processedTrainingData = featureAssembler.transform(labelIndexer.transform(trainingData))
-    val processedTrainingData2 = featureAssembler.transform(labelIndexer.transform(trainingData2))
-
-    //val rf = new org.apache.spark.ml.classification.RandomForestClassifier()
     val rf = new org.apache.spark.ml.wahoo.WahooRandomForestClassifier()
       .setLabelCol("indexedLabel")
       .setFeaturesCol("indexedFeatures")
       .setNumTrees(100)
 
-    rf.regrowProp = 0.5
-    rf.incrementalProp = 0.5
+    rf.regrowProp = 0.45
+    rf.incrementalProp = 0.45
 
     val labelConverter = new IndexToString()
       .setInputCol("prediction")
       .setOutputCol("predictedLabel")
       .setLabels(labelIndexer.labels)
 
-    val processedTestData = featureAssembler.transform(labelIndexer.transform(testData))
-
-    val model = rf.fit(processedTrainingData)
-
-    val predictions = labelConverter.transform(
-      model.transform(processedTestData)
-    )
-
-    predictions.select("predictedLabel", "label", "indexedFeatures").show(5)
 
     val evaluator = new MulticlassClassificationEvaluator()
       .setLabelCol("indexedLabel")
       .setPredictionCol("prediction")
       .setMetricName("precision")
 
-    val accuracy = evaluator.evaluate(predictions)
+
+    // https://spark.apache.org/docs/1.5.2/ml-ensembles.html#random-forests
+
+    // Split the data into training and test sets (30% held out for testing)
+    //val Array(trainingData, trainingData2, testData) = df.randomSplit(Array(0.002, 0.698, 0.3))
+    val (testData, trainingDataBatches) = splitDataInBatches(df, 0.3, 10)
+
+    // Prepare test data
+    val processedTestData = featureAssembler.transform(labelIndexer.transform(testData))
+
+
+    // Initial training
+    // train
+    var processedTrainingData = featureAssembler.transform(labelIndexer.transform(trainingDataBatches(0)))
+    var model = rf.fit(processedTrainingData)
+    // predict
+    var predictions = labelConverter.transform(
+      model.transform(processedTestData)
+    )
+    // evaluate
+    var accuracy = evaluator.evaluate(predictions)
     println("test error = " + (1.0 - accuracy))
 
-    // update model with new batch
-    // test now with the same training set, so the accuracy should theoretically increase and overfit
-    val model2 = rf.update(model.asInstanceOf[org.apache.spark.ml.wahoo.RandomForestClassificationModel], processedTrainingData2)
 
-    val predictions2 = labelConverter.transform(
-      model2.transform(processedTestData)
-    )
+    // Updates
+    trainingDataBatches.drop(1).foreach(batch => {
+      processedTrainingData = featureAssembler.transform(labelIndexer.transform(batch))
+      model = rf.update(model, processedTrainingData)
+      // predict
+      predictions = labelConverter.transform(
+        model.transform(processedTestData)
+      )
+      // evaluate
+      accuracy = evaluator.evaluate(predictions)
+      println("test error = " + (1.0 - accuracy))
+    })
 
-    val accuracy2 = evaluator.evaluate(predictions2)
-    println("test error2 = " + (1.0 - accuracy2))
+  }
 
+  /**
+    * First batch is the test batch and the rest are training batches
+    * @return
+    */
+  def splitDataInBatches(df: DataFrame, testPercentage: Double, nrTrainingBatches: Int) : (DataFrame, Array[DataFrame]) = {
+    val Array(testData, trainingData) = df.randomSplit(Array(testPercentage, 1 - testPercentage))
+    val weights = Array.fill[Double](nrTrainingBatches)(1 - testPercentage / nrTrainingBatches)
+
+    // Here we assume the randomSplit normalizes the weights in order to sum up to 1.
+    (testData, trainingData.randomSplit(weights))
   }
 
   def loadPointFeaturesCSV(filePath: String, sqlContext: SQLContext): DataFrame = {
