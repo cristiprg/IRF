@@ -20,9 +20,9 @@ assemblyJarName in assembly := "ml.jar"
 
 // libraryDependencies += "org.apache.spark" %% "spark-mllib" % "1.5.1" % "provided"
 
-libraryDependencies += "org.apache.spark" %% "spark-core" % "1.5.2" % "provided"
-libraryDependencies += "org.apache.spark" %% "spark-sql" % "1.5.2" % "provided"
-libraryDependencies += "org.apache.spark" %% "spark-mllib" % "1.5.2" % "provided"
+libraryDependencies += "org.apache.spark" %% "spark-core" % "1.5.2" % "compile"
+libraryDependencies += "org.apache.spark" %% "spark-sql" % "1.5.2" % "compile"
+libraryDependencies += "org.apache.spark" %% "spark-mllib" % "1.5.2" % "compile"
 
 libraryDependencies += "org.eclipse.jetty" % "jetty-webapp" % "9.1.0.v20131115"
 libraryDependencies += "org.eclipse.jetty" % "jetty-plus" % "9.1.0.v20131115"
