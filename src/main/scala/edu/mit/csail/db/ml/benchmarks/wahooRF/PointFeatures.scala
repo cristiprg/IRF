@@ -3,14 +3,17 @@ package org.apache.spark.ml.wahoo
 import edu.mit.csail.db.ml.benchmarks.wahoo.WahooUtils
 import org.apache.spark.ml.Pipeline
 import org.apache.spark.ml.feature.{IndexToString, StringIndexer, VectorAssembler, VectorIndexer}
+import org.apache.spark.mllib.tree.impl.TimeTracker
 //import org.apache.spark.ml.classification.RandomForestClassifier
 import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
 import org.apache.spark.sql.types.{DataTypes, Metadata, StructField, StructType}
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.sql.{DataFrame, SQLContext}
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.Row
 
 
+//import org.apache.spark.ml.classification.KNNClassifier
 /**
   * Created by cristiprg on 20.05.17.
   */
@@ -26,7 +29,8 @@ object PointFeatures {
     sc.setLogLevel("WARN")
     val sqlContext = new SQLContext(sc)
 
-    val trainingDataPath = "/media/cristiprg/Eu/YadoVR/pointFeatures.csv"
+    //val trainingDataPath = "/media/cristiprg/Eu/YadoVR/pointFeatures.csv"
+    val trainingDataPath = args(0)
 
     var df = loadPointFeaturesCSV(trainingDataPath, sqlContext)
 
@@ -42,6 +46,7 @@ object PointFeatures {
     // Initialize pipeline elements
     val labelIndexer = new StringIndexer()
       .setInputCol("binaryLabel")
+      //.setInputCol("label")
       .setOutputCol("indexedLabel")
       .fit(df)
 
@@ -50,13 +55,16 @@ object PointFeatures {
       .setInputCols(Array("PF_Linearity", "PF_Planarity", "PF_Scattering", "PF_Omnivariance", "PF_Eigenentropy", "PF_Anisotropy", "PF_CurvatureChange", "PF_AbsoluteHeight", "PF_LocalPointDensity3D", "PF_LocalRadius3D", "PF_MaxHeightDiff3D", "PF_HeightVar3D", "PF_LocalRadius2D", "PF_SumEigenvalues2D", "PF_RatioEigenvalues2D", "PF_MAccu2D", "PF_MaxHeightDiffAccu2D", "PF_VarianceAccu2D"))
       .setOutputCol("indexedFeatures")
 
+    //val rf = new KNNClassifier()
     val rf = new org.apache.spark.ml.wahoo.WahooRandomForestClassifier()
+    //val rf = new org.apache.spark.ml.classification.RandomForestClassifier()
       .setLabelCol("indexedLabel")
       .setFeaturesCol("indexedFeatures")
+      //.setK(10)
       .setNumTrees(100)
 
-    rf.regrowProp = 0.45
-    rf.incrementalProp = 0.45
+    rf.regrowProp = 0.5
+    rf.incrementalProp = 0.5
 
     val labelConverter = new IndexToString()
       .setInputCol("prediction")
@@ -81,9 +89,13 @@ object PointFeatures {
 
 
     // Initial training
+    val timer = new TimeTracker()
     // train
+
+    timer.start("training 0")
     var processedTrainingData = featureAssembler.transform(labelIndexer.transform(trainingDataBatches(0)))
     var model = rf.fit(processedTrainingData)
+    var time = timer.stop("training 0")
     // predict
     var predictions = labelConverter.transform(
       model.transform(processedTestData)
@@ -91,20 +103,52 @@ object PointFeatures {
     // evaluate
     var accuracy = evaluator.evaluate(predictions)
     println("test error = " + (1.0 - accuracy))
+    println("time = " + time)
 
 
     // Updates
     trainingDataBatches.drop(1).foreach(batch => {
       processedTrainingData = featureAssembler.transform(labelIndexer.transform(batch))
+      timer.start("training " + batch)
       model = rf.update(model, processedTrainingData)
       // predict
       predictions = labelConverter.transform(
         model.transform(processedTestData)
       )
+      time = timer.stop("training " + batch)
       // evaluate
       accuracy = evaluator.evaluate(predictions)
       println("test error = " + (1.0 - accuracy))
+      println("time = " + time)
     })
+
+
+    // Control benchmark
+    println("Control benchmarks from here")
+    val controlRF: org.apache.spark.ml.classification.RandomForestClassifier =
+      new org.apache.spark.ml.classification.RandomForestClassifier()
+        .setLabelCol("indexedLabel")
+        .setFeaturesCol("indexedFeatures")
+        .setNumTrees(100)
+
+    var currDF = sqlContext.createDataFrame(sc.emptyRDD[Row], df.schema)
+    var controlModel: org.apache.spark.ml.classification.RandomForestClassificationModel = null
+    trainingDataBatches.foreach(batch => {
+      currDF = currDF.unionAll(batch)
+      processedTrainingData = featureAssembler.transform(labelIndexer.transform(currDF))
+      timer.start("training " + batch)
+      controlModel = controlRF.fit(processedTrainingData)
+      // predict
+      predictions = labelConverter.transform(
+        controlModel.transform(processedTestData)
+      )
+      time = timer.stop("training " + batch)
+      // evaluate
+      accuracy = evaluator.evaluate(predictions)
+      println("test error = " + (1.0 - accuracy))
+      println("time = " + time)
+    })
+
 
   }
 
@@ -146,7 +190,8 @@ object PointFeatures {
       StructField("PF_RatioEigenvalues2D", DataTypes.DoubleType, nullable = false, Metadata.empty),
       StructField("PF_MAccu2D", DataTypes.DoubleType, nullable = false, Metadata.empty),
       StructField("PF_MaxHeightDiffAccu2D", DataTypes.DoubleType, nullable = false, Metadata.empty),
-      StructField("PF_VarianceAccu2D", DataTypes.DoubleType, nullable = false, Metadata.empty)))
+      StructField("PF_VarianceAccu2D", DataTypes.DoubleType, nullable = false, Metadata.empty))
+    )
 
     WahooUtils.readData(filePath, sqlContext, customSchema)
   }
