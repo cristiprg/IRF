@@ -1,5 +1,6 @@
 package org.apache.spark.ml.wahoo
 
+import de.tu_berlin.dima.PointFeaturesExtractor
 import edu.mit.csail.db.ml.benchmarks.wahoo.WahooUtils
 import org.apache.spark.ml.Pipeline
 import org.apache.spark.ml.feature.{IndexToString, StringIndexer, VectorAssembler, VectorIndexer}
@@ -32,7 +33,11 @@ object PointFeatures {
     //val trainingDataPath = "/media/cristiprg/Eu/YadoVR/pointFeatures.csv"
     val trainingDataPath = args(0)
 
-    var df = loadPointFeaturesCSV(trainingDataPath, sqlContext)
+    //var df = loadPointFeaturesCSV(trainingDataPath, sqlContext)
+    var df = PointFeaturesExtractor.extractPointFeatures(sc, trainingDataPath,
+      "/media/cristiprg/Eu/Scoala/BDAPRO/LidarPointFeaturesScala/src/main/scripts/queryKNN.py",
+      "/media/cristiprg/Eu/Scoala/BDAPRO/LidarPointFeaturesScala/src/main/scripts/buildKNNObject.py", true,
+      "/media/cristiprg/Eu/Scoala/BDAPRO/LidarPointFeaturesScala/knnObj.pkl")
 
 
     // transform the problem into a binary classification problem
@@ -52,7 +57,8 @@ object PointFeatures {
 
     val featureAssembler = new VectorAssembler()
       //.setInputCols(Array("PF_Linearity", "PF_Planarity", "PF_Scattering"))
-      .setInputCols(Array("PF_Linearity", "PF_Planarity", "PF_Scattering", "PF_Omnivariance", "PF_Eigenentropy", "PF_Anisotropy", "PF_CurvatureChange", "PF_AbsoluteHeight", "PF_LocalPointDensity3D", "PF_LocalRadius3D", "PF_MaxHeightDiff3D", "PF_HeightVar3D", "PF_LocalRadius2D", "PF_SumEigenvalues2D", "PF_RatioEigenvalues2D", "PF_MAccu2D", "PF_MaxHeightDiffAccu2D", "PF_VarianceAccu2D"))
+      //.setInputCols(Array("PF_Linearity", "PF_Planarity", "PF_Scattering", "PF_Omnivariance", "PF_Eigenentropy", "PF_Anisotropy", "PF_CurvatureChange", "PF_AbsoluteHeight", "PF_LocalPointDensity3D", "PF_LocalRadius3D", "PF_MaxHeightDiff3D", "PF_HeightVar3D", "PF_LocalRadius2D", "PF_SumEigenvalues2D", "PF_RatioEigenvalues2D", "PF_MAccu2D", "PF_MaxHeightDiffAccu2D", "PF_VarianceAccu2D"))
+      .setInputCols(Array("PF_Linearity", "PF_Planarity", "PF_Scattering", "PF_Omnivariance", "PF_Eigenentropy", "PF_Anisotropy", "PF_CurvatureChange"))
       .setOutputCol("indexedFeatures")
 
     //val rf = new KNNClassifier()
