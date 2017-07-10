@@ -180,7 +180,7 @@ object PointFeaturesExtractor {
     for (currNeighSize <- minNeighSize to maxNeighSize by stepNeighSize) {
       val neighborsSubset = neighbors.slice(0, currNeighSize) // TODO: this might be slow, consider making use of the offset param below
       val breezeMatrix = new breeze.linalg.DenseMatrix(neighborsSubset.length, nrDim, neighborsSubset.flatten, 0, nrDim, true)
-      val eignValues = breeze.linalg.princomp(breezeMatrix).propvar
+      val eignValues = breeze.linalg.princomp(breezeMatrix).propvar.map(x => if (x == 0) 10E-15 else x) // add infinitely small epsilon (Weinmann. ch 2.1), otherwise BOOM
       val entropy = -eignValues(0) * scala.math.log(eignValues(0)) - eignValues(1) * scala.math.log(eignValues(1)) - eignValues(2) * scala.math.log(eignValues(2))
 
       if (entropy < optEntropy) {
