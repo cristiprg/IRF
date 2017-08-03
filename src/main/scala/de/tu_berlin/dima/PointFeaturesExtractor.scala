@@ -14,9 +14,12 @@ import sys.process._
   * the coordinates of the points. Unfortunately, for now it has external dependencies two python scripts which need
   * to be located on the disk, accessible by JVM. This is necessary since there is no good kNN in Spark yet, so we
   * use sklearn's Nearest Neighbors.
+  * TODO: parameters should control the min, max and step size when searching for optimal neigh size, might be crucial!!!
   */
 object PointFeaturesExtractor {
 
+
+  private var firstTime = true
 
   /**
     * Extracts the point features from a csv file of this format: x,y,z,c.
@@ -53,12 +56,14 @@ object PointFeaturesExtractor {
 
 
     // Some householding: make an RDD out of the input file and copy necessary files for querying to workers.
-    sc.addFile(queryKNNScriptPath)
     sc.addFile(kNNpicklePath)
+    if (firstTime) {
+      sc.addFile(queryKNNScriptPath)
+    }
 
     // Read laser points
     val laserPointsFileRDD = sc.textFile(laserPointsFile, sc.getConf.getInt("spark.default.parallelism", 5))
-    laserPointsFileRDD.cache()
+//    laserPointsFileRDD.cache()
 
     // Get the x, y, z coordinates of the points in one RDD and the labels in another RDD. This helps reduce the amount
     // sent via pipe to the python query script. Ultimately, these two are going to be merged (joined) back together.
@@ -100,6 +105,8 @@ object PointFeaturesExtractor {
     import sqlContext.implicits._
     val laserPointsFeaturesDF = finalRDD.toDF("index", "X", "Y", "Z", "PF_Linearity", "PF_Planarity",
       "PF_Scattering", "PF_Omnivariance", "PF_Anisotropy", "PF_Eigenentropy", "PF_CurvatureChange", "label")
+
+    firstTime = false
 
     laserPointsFeaturesDF
   }
