@@ -1,6 +1,7 @@
 package de.tu_berlin.dima
 
 import breeze.linalg.DenseVector
+import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkContext, SparkFiles}
 import org.apache.spark.sql.{DataFrame, SQLContext}
 
@@ -42,7 +43,7 @@ object PointFeaturesExtractor {
     // Build lookup table for quickly retrieving the coordinates of the point at certain index in the original file.
     // Performing this in Python is for some reason extremely slow, so we're doing this in Scala. Therefore LUT will
     // be broadcast to all workers.
-    val LUT = buildLUT(laserPointsFile, csvSeparator)
+    val LUT = buildLUT(sc, laserPointsFile, csvSeparator)
 
     // Step 1: compute NN, i.e. run python script that builds a sklearn.neighbors.NearestNeighbors object and then
     // saves it to disk (pickles it).
@@ -56,7 +57,7 @@ object PointFeaturesExtractor {
     sc.addFile(kNNpicklePath)
 
     // Read laser points
-    val laserPointsFileRDD = sc.textFile(laserPointsFile, 3)
+    val laserPointsFileRDD = sc.textFile(laserPointsFile, sc.getConf.getInt("spark.default.parallelism", 5))
     laserPointsFileRDD.cache()
 
     // Get the x, y, z coordinates of the points in one RDD and the labels in another RDD. This helps reduce the amount
@@ -79,7 +80,7 @@ object PointFeaturesExtractor {
     // The script outputs on each line the list the ids in the original dataset of the nearest neighbors of each query
     // point. The ids are then looked up to get the real coordinates and then the features are computed.
     // Note: the first element of each line is the id of the query point.
-    val pythonQueryKNNCMD = "python " + SparkFiles.get(queryKNNScriptName) + " " + SparkFiles.get(kNNpickleName) // args to script are locations of the pkls
+    val pythonQueryKNNCMD = "python " + queryKNNScriptName + " " + kNNpickleName // args to script are locations of the pkls
     val laserPointFeaturesRDD = laserPointsRDD
       .pipe(pythonQueryKNNCMD)
       .zipWithIndex() // perform this as early as possible, it saved 33% of execution time
@@ -108,27 +109,36 @@ object PointFeaturesExtractor {
     * Reads the file and builds an Array that contains the coordinates of the laser points. This is useful when we need
     * the coordinates of the point at a certain index in the file.
     */
-  private def buildLUT(laserPointsFile: String, csvSeparator: String): Array[Array[Double]] = {
-    // http://alvinalexander.com/scala/csv-file-how-to-process-open-read-parse-in-scala
-    // each row is an array of double (the columns in the csv file)
-    val rows = ArrayBuffer[Array[Double]]()
+  private def buildLUT(sc: SparkContext, laserPointsFile: String, csvSeparator: String): Array[Array[Double]] = {
 
-    // (1) read the csv data
-    using(scala.io.Source.fromFile(laserPointsFile)) { source =>
-      for (line <- source.getLines) {
-        // keep the first three columns, i.e. the coordinates
-        rows += line.split(csvSeparator).slice(0, 3).map(_.trim.toDouble)
-      }
-    }
+    // New version using Spark
+    val LUT = sc.textFile(laserPointsFile, sc.getConf.getInt("spark.default.parallelism", 5))
+      .map(_.split(csvSeparator).slice(0, 3).map(_.trim.toDouble))
+      .collect()
 
-    def using[A <: { def close(): Unit }, B](resource: A)(f: A => B): B =
-      try {
-        f(resource)
-      } finally {
-        resource.close()
-      }
+    LUT
+    /*
+        // http://alvinalexander.com/scala/csv-file-how-to-process-open-read-parse-in-scala
+        // each row is an array of double (the columns in the csv file)
+        val rows = ArrayBuffer[Array[Double]]()
 
-    rows.toArray
+        // (1) read the csv data
+        using(scala.io.Source.fromFile(laserPointsFile)) { source =>
+          for (line <- source.getLines) {
+            // keep the first three columns, i.e. the coordinates
+            rows += line.split(csvSeparator).slice(0, 3).map(_.trim.toDouble)
+          }
+        }
+
+        def using[A <: { def close(): Unit }, B](resource: A)(f: A => B): B =
+          try {
+            f(resource)
+          } finally {
+            resource.close()
+          }
+
+        rows.toArray
+    */
   }
 
   /**
