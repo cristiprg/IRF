@@ -71,7 +71,7 @@ object TrainModel extends Logging{
 
       val featureAssembler = new VectorAssembler()
 //        .setInputCols(Array("PF_Linearity", "PF_Planarity", "PF_Scattering", "PF_Omnivariance", "PF_Eigenentropy", "PF_Anisotropy", "PF_CurvatureChange", "PF_AbsoluteHeight", "PF_LocalPointDensity3D", "PF_LocalRadius3D", "PF_MaxHeightDiff3D", "PF_HeightVar3D", "PF_LocalRadius2D", "PF_SumEigenvalues2D", "PF_RatioEigenvalues2D", "PF_MAccu2D", "PF_MaxHeightDiffAccu2D", "PF_VarianceAccu2D"))
-        .setInputCols(Array("PF_Linearity", "PF_Planarity","PF_Scattering", "PF_Omnivariance", "PF_Anisotropy", "PF_Eigenentropy", "PF_CurvatureChange"))
+        .setInputCols(Array("PF_AbsoluteHeight", "PF_Linearity", "PF_Planarity","PF_Scattering", "PF_Omnivariance", "PF_Anisotropy", "PF_Eigenentropy", "PF_CurvatureChange"))
         .setOutputCol("indexedFeatures")
 
 

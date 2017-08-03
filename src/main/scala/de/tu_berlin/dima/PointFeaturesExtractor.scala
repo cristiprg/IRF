@@ -99,11 +99,11 @@ object PointFeaturesExtractor {
     val finalRDD = laserPointFeaturesRDD
       .join(laserPointsLabelsRDD)
       .map(x => (x._1, x._2._1._1, x._2._1._2, x._2._1._3, x._2._1._4, x._2._1._5, x._2._1._6, x._2._1._7, x._2._1._8,
-        x._2._1._9, x._2._1._10, x._2._2)) // flatten the tuple
+        x._2._1._9, x._2._1._10, x._2._1._11, x._2._2)) // flatten the tuple
 
     val sqlContext = new SQLContext(sc)
     import sqlContext.implicits._
-    val laserPointsFeaturesDF = finalRDD.toDF("index", "X", "Y", "Z", "PF_Linearity", "PF_Planarity",
+    val laserPointsFeaturesDF = finalRDD.toDF("index", "X", "Y", "Z", "PF_AbsoluteHeight","PF_Linearity", "PF_Planarity",
       "PF_Scattering", "PF_Omnivariance", "PF_Anisotropy", "PF_Eigenentropy", "PF_CurvatureChange", "label")
 
     firstTime = false
@@ -157,8 +157,9 @@ object PointFeaturesExtractor {
   private def prepareDataFrame(neighbors: Array[Array[Double]]) = {
     val queryPoint = neighbors(0)
     val features = getPointFeatures(neighbors)
+    val PF_AbsoluteHeight = queryPoint(2)
 
-    (queryPoint(0), queryPoint(1), queryPoint(2), features._1, features._2, features._3, features._4, features._5, features._6, features._7)
+    (queryPoint(0), queryPoint(1), queryPoint(2), PF_AbsoluteHeight, features._1, features._2, features._3, features._4, features._5, features._6, features._7)
   }
 
   private def getPointFeatures(neighbors: Array[Array[Double]]) = {
