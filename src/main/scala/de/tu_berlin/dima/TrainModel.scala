@@ -8,7 +8,7 @@ import org.apache.spark.ml.feature.{IndexToString, StringIndexer, VectorAssemble
 import org.apache.spark.ml.wahoo.PointFeatures.splitDataInBatches
 import org.apache.spark.mllib.tree.impl.TimeTracker
 import org.apache.spark.{Logging, SparkConf, SparkContext}
-import org.apache.spark.sql.SQLContext
+import org.apache.spark.sql.{SQLContext, SaveMode}
 
 import scala.io.Source
 
@@ -29,6 +29,7 @@ object TrainModel extends Logging{
     val outputFile = args(6)
 
     val tilesDirectory = laserPointsFile + "_tiles_folder"
+    val classifiedPointsParquetFile = "classifedPoints.parquet"
 
     val conf = new SparkConf()
       .setAppName("Wahoo")
@@ -56,6 +57,11 @@ object TrainModel extends Logging{
 
     var model: RandomForestClassificationModel = null
 
+    val featureAssembler = new VectorAssembler()
+      //        .setInputCols(Array("PF_Linearity", "PF_Planarity", "PF_Scattering", "PF_Omnivariance", "PF_Eigenentropy", "PF_Anisotropy", "PF_CurvatureChange", "PF_AbsoluteHeight", "PF_LocalPointDensity3D", "PF_LocalRadius3D", "PF_MaxHeightDiff3D", "PF_HeightVar3D", "PF_LocalRadius2D", "PF_SumEigenvalues2D", "PF_RatioEigenvalues2D", "PF_MAccu2D", "PF_MaxHeightDiffAccu2D", "PF_VarianceAccu2D"))
+      .setInputCols(Array("PF_AbsoluteHeight", "PF_Linearity", "PF_Planarity","PF_Scattering", "PF_Omnivariance", "PF_Anisotropy", "PF_Eigenentropy", "PF_CurvatureChange"))
+      .setOutputCol("indexedFeatures")
+
     for (i <- 0 until nrTiles) {
       val suffix = "part-" + "%05d".format(i)
       val tileFilePath = tilesDirectory + "/" + suffix
@@ -64,41 +70,10 @@ object TrainModel extends Logging{
       var df = PointFeaturesExtractor.extractPointFeatures(sc, tileFilePath,
         queryKNNScriptPath, buildKNNObjectScriptPath, buildPickles, kNNpicklePath + "-" + suffix)
 
-      // Initialize pipeline elements
-
-      val featureAssembler = new VectorAssembler()
-//        .setInputCols(Array("PF_Linearity", "PF_Planarity", "PF_Scattering", "PF_Omnivariance", "PF_Eigenentropy", "PF_Anisotropy", "PF_CurvatureChange", "PF_AbsoluteHeight", "PF_LocalPointDensity3D", "PF_LocalRadius3D", "PF_MaxHeightDiff3D", "PF_HeightVar3D", "PF_LocalRadius2D", "PF_SumEigenvalues2D", "PF_RatioEigenvalues2D", "PF_MAccu2D", "PF_MaxHeightDiffAccu2D", "PF_VarianceAccu2D"))
-        .setInputCols(Array("PF_AbsoluteHeight", "PF_Linearity", "PF_Planarity","PF_Scattering", "PF_Omnivariance", "PF_Anisotropy", "PF_Eigenentropy", "PF_CurvatureChange"))
-        .setOutputCol("indexedFeatures")
-
-
-
-
-      val evaluator = new MulticlassClassificationEvaluator()
-        .setLabelCol("label")
-        .setPredictionCol("prediction")
-        .setMetricName("precision")
-
-
-      // https://spark.apache.org/docs/1.5.2/ml-ensembles.html#random-forests
-
-      // Split the data into training and test sets (30% held out for testing)
-//      val Array(trainingData, trainingData2, testData) = df.randomSplit(Array(0.002, 0.698, 0.3))
-//      val (testData, trainingDataBatches) = splitDataInBatches(df, fractionTest, numBatches)
-      val Array(testData, trainingData) = df.randomSplit(Array(0.25, 0.75))
-      println("testData.count() = " + testData.count())
-
-      // Prepare test data
-      val processedTestData = featureAssembler.transform(testData)
-
-
-      // Initial training
       val timer = new TimeTracker()
-      // train
-
       timer.start("training 0")
-      var processedTrainingData = featureAssembler.transform(trainingData)
-      println("Fitting, trainingDataBatches(0).count() = " + trainingData.count())
+
+      var processedTrainingData = featureAssembler.transform(df)
 
       if (i == 0) {
         logInfo("Fitting IRF model!")
@@ -110,18 +85,34 @@ object TrainModel extends Logging{
       }
 
       var time = timer.stop("training 0")
-      // predict
-      var predictions = model.transform(processedTestData)
-
-      // evaluate
-      println("Evaluating ...")
-      var accuracy = evaluator.evaluate(predictions)
-
-      println("test error = " + (1.0 - accuracy))
-      println("time = " + time)
-
-
     }
+
+    for (i <- 0 until nrTiles) {
+      val suffix = "part-" + "%05d".format(i)
+      val tileFilePath = tilesDirectory + "/" + suffix
+      logInfo("Processing tile: " + tileFilePath)
+
+      var df = PointFeaturesExtractor.extractPointFeatures(sc, tileFilePath,
+        queryKNNScriptPath, buildKNNObjectScriptPath, buildPickles, kNNpicklePath + "-" + suffix)
+
+      val processedTestData = featureAssembler.transform(df)
+      var predictions = model.transform(processedTestData)
+      println("Exporting predicitons to parquet file ...")
+      if (i == 0) {
+        //        create table
+        predictions.select("X", "Y", "Z", "prediction").write.parquet(classifiedPointsParquetFile)
+      }
+      else{
+        //        append to table
+        predictions.select("X", "Y", "Z", "prediction").write.mode(SaveMode.Append).parquet(classifiedPointsParquetFile)
+      }
+    }
+
+    val sqlContext = new SQLContext(sc)
+    sqlContext
+      .read.parquet(classifiedPointsParquetFile)
+      .coalesce(1) // reduce to one partition
+      .write.format("com.databricks.spark.csv").option("header", "true").save(outputFile + "-classified")
 
 //    //sc.setLogLevel("WARN")
 //    val sqlContext = new SQLContext(sc)
