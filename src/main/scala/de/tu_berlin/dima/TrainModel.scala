@@ -2,6 +2,7 @@
 package org.apache.spark.ml.wahoo
 
 import de.tu_berlin.dima.PointFeaturesExtractor
+import org.apache.spark.ml.attribute.NominalAttribute
 import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
 import org.apache.spark.ml.feature.{IndexToString, StringIndexer, VectorAssembler}
 import org.apache.spark.ml.wahoo.PointFeatures.splitDataInBatches
@@ -49,7 +50,7 @@ object TrainModel extends Logging{
     laserPointsRDD.coalesce(nrTiles).saveAsTextFile(tilesDirectory) // Save tiles as files, then process them one by one
 
     val rf = new org.apache.spark.ml.wahoo.WahooRandomForestClassifier()
-      .setLabelCol("indexedLabel")
+      .setLabelCol("label")
       .setFeaturesCol("indexedFeatures")
       .setNumTrees(100)
 
@@ -64,10 +65,6 @@ object TrainModel extends Logging{
         queryKNNScriptPath, buildKNNObjectScriptPath, buildPickles, kNNpicklePath + "-" + suffix)
 
       // Initialize pipeline elements
-      val labelIndexer = new StringIndexer()
-        .setInputCol("label")
-        .setOutputCol("indexedLabel")
-        .fit(df)
 
       val featureAssembler = new VectorAssembler()
 //        .setInputCols(Array("PF_Linearity", "PF_Planarity", "PF_Scattering", "PF_Omnivariance", "PF_Eigenentropy", "PF_Anisotropy", "PF_CurvatureChange", "PF_AbsoluteHeight", "PF_LocalPointDensity3D", "PF_LocalRadius3D", "PF_MaxHeightDiff3D", "PF_HeightVar3D", "PF_LocalRadius2D", "PF_SumEigenvalues2D", "PF_RatioEigenvalues2D", "PF_MAccu2D", "PF_MaxHeightDiffAccu2D", "PF_VarianceAccu2D"))
@@ -76,13 +73,9 @@ object TrainModel extends Logging{
 
 
 
-      val labelConverter = new IndexToString()
-        .setInputCol("prediction")
-        .setOutputCol("predictedLabel")
-        .setLabels(labelIndexer.labels)
 
       val evaluator = new MulticlassClassificationEvaluator()
-        .setLabelCol("indexedLabel")
+        .setLabelCol("label")
         .setPredictionCol("prediction")
         .setMetricName("precision")
 
@@ -96,7 +89,7 @@ object TrainModel extends Logging{
       println("testData.count() = " + testData.count())
 
       // Prepare test data
-      val processedTestData = featureAssembler.transform(labelIndexer.transform(testData))
+      val processedTestData = featureAssembler.transform(testData)
 
 
       // Initial training
@@ -104,7 +97,7 @@ object TrainModel extends Logging{
       // train
 
       timer.start("training 0")
-      var processedTrainingData = featureAssembler.transform(labelIndexer.transform(trainingData))
+      var processedTrainingData = featureAssembler.transform(trainingData)
       println("Fitting, trainingDataBatches(0).count() = " + trainingData.count())
 
       if (i == 0) {
@@ -118,9 +111,8 @@ object TrainModel extends Logging{
 
       var time = timer.stop("training 0")
       // predict
-      var predictions = labelConverter.transform(
-        model.transform(processedTestData)
-      )
+      var predictions = model.transform(processedTestData)
+
       // evaluate
       println("Evaluating ...")
       var accuracy = evaluator.evaluate(predictions)

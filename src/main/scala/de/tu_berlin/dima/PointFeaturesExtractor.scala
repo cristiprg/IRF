@@ -1,9 +1,11 @@
 package de.tu_berlin.dima
 
 import breeze.linalg.DenseVector
+import org.apache.spark.ml.attribute.NominalAttribute
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.types.{DataTypes, Metadata, StructField, StructType}
 import org.apache.spark.{SparkContext, SparkFiles}
-import org.apache.spark.sql.{DataFrame, SQLContext}
+import org.apache.spark.sql.{DataFrame, Row, SQLContext}
 
 import scala.collection.mutable.ArrayBuffer
 import sys.process._
@@ -98,13 +100,35 @@ object PointFeaturesExtractor {
     // "Attach" the label column by joining on the same index.
     val finalRDD = laserPointFeaturesRDD
       .join(laserPointsLabelsRDD)
-      .map(x => (x._1, x._2._1._1, x._2._1._2, x._2._1._3, x._2._1._4, x._2._1._5, x._2._1._6, x._2._1._7, x._2._1._8,
-        x._2._1._9, x._2._1._10, x._2._1._11, x._2._2)) // flatten the tuple
+      .map(x => Row(x._1, x._2._1._1, x._2._1._2, x._2._1._3, x._2._1._4, x._2._1._5, x._2._1._6, x._2._1._7, x._2._1._8,
+        x._2._1._9, x._2._1._10, x._2._1._11, x._2._2.toDouble)) // flatten the tuple
 
+    // Wrap this up: create a dataframe with a schema ready to be consumed by MLlib classifiers (tested with RF and IRF).
     val sqlContext = new SQLContext(sc)
-    import sqlContext.implicits._
-    val laserPointsFeaturesDF = finalRDD.toDF("index", "X", "Y", "Z", "PF_AbsoluteHeight","PF_Linearity", "PF_Planarity",
-      "PF_Scattering", "PF_Omnivariance", "PF_Anisotropy", "PF_Eigenentropy", "PF_CurvatureChange", "label")
+
+    // Specifying here the metadata allows us to avoid using the StringIndexer, which in turn allows us to apply this
+    // feature extraction step to tiles of laser points, instead of entire dataset.
+    val meta = NominalAttribute
+      .defaultAttr
+      .withValues("0.0", "1.0", "2.0", "3.0", "4.0", "5.0", "6.0", "7.0", "8.0", "9.0", "10.0") // add here when we the number of classes increase.
+      .toMetadata
+
+    val customSchema = new StructType(Array[StructField](
+      StructField("index", DataTypes.LongType, nullable = false, Metadata.empty),
+      StructField("X", DataTypes.DoubleType, nullable = false, Metadata.empty),
+      StructField("Y", DataTypes.DoubleType, nullable = false, Metadata.empty),
+      StructField("Z", DataTypes.DoubleType, nullable = false, Metadata.empty),
+      StructField("PF_AbsoluteHeight", DataTypes.DoubleType, nullable =  false, Metadata.empty),
+      StructField("PF_Linearity", DataTypes.DoubleType, nullable = false, Metadata.empty),
+      StructField("PF_Planarity", DataTypes.DoubleType, nullable = false, Metadata.empty),
+      StructField("PF_Scattering", DataTypes.DoubleType, nullable = false, Metadata.empty),
+      StructField("PF_Omnivariance", DataTypes.DoubleType, nullable = false, Metadata.empty),
+      StructField("PF_Anisotropy", DataTypes.DoubleType, nullable = false, Metadata.empty),
+      StructField("PF_Eigenentropy", DataTypes.DoubleType, nullable = false, Metadata.empty),
+      StructField("PF_CurvatureChange", DataTypes.DoubleType, nullable =  false, Metadata.empty),
+      StructField("label", DataTypes.DoubleType, nullable = false, meta)))
+
+    val laserPointsFeaturesDF = sqlContext.createDataFrame(finalRDD, customSchema)
 
     firstTime = false
 
