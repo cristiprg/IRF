@@ -1,9 +1,11 @@
 package de.tu_berlin.dima
 
 import org.apache.spark.ml.feature.VectorAssembler
+import org.apache.spark.ml.wahoo.RandomForestClassificationModel
 import org.apache.spark.{Logging, SparkContext}
 import org.apache.spark.ml.wahoo.TrainModel.{logError, logInfo}
 import org.apache.spark.sql.{SQLContext, SaveMode}
+import sys.process._
 
 /**
   * Created by cristiprg on 06.08.17.
@@ -18,11 +20,10 @@ object Predict extends Logging{
               buildKNNObjectScriptPath: String,
               buildPickles: Boolean,
               kNNpicklePath: String,
-              savedModelPath: String,
+              model: RandomForestClassificationModel,
               outputFile: String) = {
 
-    val model: org.apache.spark.ml.wahoo.RandomForestClassificationModel =
-      sc.objectFile[org.apache.spark.ml.wahoo.RandomForestClassificationModel](savedModelPath).first()
+
 
     val classifiedPointsParquetFile = "classifedPoints.parquet" // @temporary
 
@@ -56,5 +57,8 @@ object Predict extends Logging{
       .option("quoteMode", "NONE")
       .option("escape","\\")
       .save(outputFile)
+
+//    delete temporary file
+    "hdfs dfs -rm -r " + classifiedPointsParquetFile !
   }
 }

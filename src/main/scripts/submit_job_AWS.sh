@@ -16,24 +16,49 @@ spark.driver.extraJavaOptions    -Xmx10240m \
 
 # Check input args in file NearestNeighborsPython.scala
 #laserPointsFile="/media/cristiprg/Eu/YadoVR/binaries/data/semantic3d/bildstein_station1_xyz_intensity_rgb_1K.csv"
-laserPointsFile="s3://spark-pointfeatures/Enschede_1_test_space.csv"
-batchSize=5000
+trainingLaserPointsFiles="s3://spark-pointfeatures/Bildstein1/2.txt,s3://spark-pointfeatures/Bildstein1/3.txt"
+predictLaserPointsFiles="s3://spark-pointfeatures/Bildstein1/1.txt,s3://spark-pointfeatures/Bildstein1/3.txt" # COMMA separated list
+batchSize=200000
 queryKNNScriptPath="/home/hadoop/queryKNN.py"
 buildKNNObjectScriptPath="/home/hadoop/buildKNNObject.py"
 buildPickles="1"
-kNNpicklePath="/home/hadoop/knnObj.pkl"
-outputFile="s3://spark-pointfeatures/pointFeatures.csv"
+kNNpicklePath="/home/hadoop"
+savedModelPath="s3://spark-pointfeatures/savedModels/bildstein1.irfmodel"
 
-# Remove existing hadoop folder
-# /usr/local/hadoop/bin/hdfs dfs -rm -r /Spark/data/pointFeatures.csv
-aws s3 rm --recursive $outputFile
-aws s3 rm --recursive ${laserPointsFile}_tiles_folder
+# Make sure to avoid "hadoop file/folder exists error"
+# Remove existing parquet files
+hdfs dfs -rm -r /user/hadoop/pointFeatures.parquet /user/hadoop/classifedPoints.parquet
 
-# Run application
-#SPARK_FOLDER="/home/cristiprg/Programs/spark-2.1.1-bin-hadoop2.7"
-#SPARK_FOLDER="/home/cristiprg/Programs/spark-1.6.3-bin-hadoop2.6"
+# Delete temporary folders created for storing the tiled files before starting the program
+for file in $(echo "${predictLaserPointsFiles} ${trainingLaserPointsFiles}" | sed "s/,/ /g" )
+do
+	aws s3 rm --recursive ${file}_tiles_folder
+	aws s3 rm --recursive ${file}-classified
+done
 
-spark-submit --master yarn --class org.apache.spark.ml.wahoo.TrainModel \
-        /home/hadoop/ml.jar \
-        $laserPointsFile $batchSize $queryKNNScriptPath $buildKNNObjectScriptPath $buildPickles \
-        $kNNpicklePath $outputFile
+# Train
+hdfs dfs -rm -r $savedModelPath
+spark-submit --master yarn --class de.tu_berlin.dima.IRF \
+        /home/hadoop/ml.jar train\
+        $trainingLaserPointsFiles $batchSize $queryKNNScriptPath $buildKNNObjectScriptPath $buildPickles \
+        $kNNpicklePath $savedModelPath "" # ignore last argument
+
+# Clean up: delete temporary folders created for storing the tiled files
+for file in $(echo "${trainingLaserPointsFiles}" | sed "s/,/ /g" )
+do
+	aws s3 rm --recursive ${file}_tiles_folder
+done
+
+# Predict
+spark-submit --master yarn --class de.tu_berlin.dima.IRF \
+        /home/hadoop/ml.jar predict\
+        $predictLaserPointsFiles $batchSize $queryKNNScriptPath $buildKNNObjectScriptPath $buildPickles \
+        $kNNpicklePath $savedModelPath 
+
+# Clean up: delete temporary folders created for storing the tiled files
+for file in $(echo "${predictLaserPointsFiles}" | sed "s/,/ /g" )
+do
+	aws s3 rm --recursive ${file}_tiles_folder
+done
+
+

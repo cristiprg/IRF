@@ -25,15 +25,10 @@ object TrainModel extends Logging{
                  buildKNNObjectScriptPath: String,
                  buildPickles: Boolean,
                  kNNpicklePath: String,
-                 savedModelPath: String) = {
+                 oldModel: RandomForestClassificationModel,
+                 rf: org.apache.spark.ml.wahoo.WahooRandomForestClassifier) = {
 
-
-    val rf = new org.apache.spark.ml.wahoo.WahooRandomForestClassifier()
-      .setLabelCol("label")
-      .setFeaturesCol("indexedFeatures")
-      .setNumTrees(100)
-
-    var model: RandomForestClassificationModel = null
+    var model: RandomForestClassificationModel = oldModel
 
 
     for (i <- 0 until nrTiles) {
@@ -49,7 +44,7 @@ object TrainModel extends Logging{
 
       var processedTrainingData = featureAssembler.transform(df)
 
-      if (i == 0) {
+      if (model == null) {
         logInfo("Fitting IRF model!")
         model = rf.fit(processedTrainingData)
       }
@@ -61,7 +56,6 @@ object TrainModel extends Logging{
       var time = timer.stop("training 0")
     }
 
-    // save model
-    sc.parallelize(Seq(model), 1).saveAsObjectFile(savedModelPath)
+    model
   }
 }

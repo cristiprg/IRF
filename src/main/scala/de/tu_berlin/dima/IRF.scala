@@ -31,14 +31,13 @@ object IRF extends Logging{
   def main(args: Array[String]) = {
     // Parse args
     val command: String = args(0)
-    val laserPointsFile = args(1)
+    val laserPointsFiles = args(1)
     val batchSize = args(2).toInt
     val queryKNNScriptPath = args(3)
     val buildKNNObjectScriptPath = args(4)
     val buildPickles = if(args(5).toInt == 0) false else true
-    val kNNpicklePath = args(6)
+    val kNNpickleDir = args(6)
     val savedModelPath = args(7)
-    val outputFile = args(8)
 
     command match {
       case "train" | "predict" =>
@@ -48,8 +47,6 @@ object IRF extends Logging{
           .set("spark.driver.allowMultipleContexts", "true")
         val sc = new SparkContext(conf)
 
-        val tilesDirectory = laserPointsFile + "_tiles_folder" // @temporary
-        val nrTiles = splitFilesIntoTiles(sc, laserPointsFile, tilesDirectory, batchSize)
 
         // Declare here in order to avoid code duplicate in train+predict
         val featureAssembler = new VectorAssembler()
@@ -59,11 +56,40 @@ object IRF extends Logging{
 
         command match {
           case "train" =>
-            TrainModel.trainModel(sc, featureAssembler, tilesDirectory, nrTiles, queryKNNScriptPath,
-              buildKNNObjectScriptPath, buildPickles, kNNpicklePath, savedModelPath)
+
+            var model: org.apache.spark.ml.wahoo.RandomForestClassificationModel = null
+            val rf = new org.apache.spark.ml.wahoo.WahooRandomForestClassifier()
+              .setLabelCol("label")
+              .setFeaturesCol("indexedFeatures")
+              .setNumTrees(100)
+              .asInstanceOf[org.apache.spark.ml.wahoo.WahooRandomForestClassifier]
+
+            laserPointsFiles.split(",").foreach(file => {
+              val tilesDirectory = file + "_tiles_folder" // @temporary
+              val nrTiles = splitFilesIntoTiles(sc, file, tilesDirectory, batchSize)
+              val knnPicklePath = kNNpickleDir + "/" + file.split("/").last + "_pickle.pkl"
+              model = TrainModel.trainModel(sc, featureAssembler, tilesDirectory, nrTiles, queryKNNScriptPath,
+                buildKNNObjectScriptPath, buildPickles, knnPicklePath, model, rf)
+            })
+
+            // last thing: save model
+            sc.parallelize(Seq(model), 1).saveAsObjectFile(savedModelPath)
+
           case "predict" =>
-            Predict.predict(sc, featureAssembler, tilesDirectory, nrTiles, queryKNNScriptPath,
-              buildKNNObjectScriptPath, buildPickles, kNNpicklePath, savedModelPath, outputFile)
+
+            // first thing: load model
+            val model: org.apache.spark.ml.wahoo.RandomForestClassificationModel =
+              sc.objectFile[org.apache.spark.ml.wahoo.RandomForestClassificationModel](savedModelPath).first()
+
+            laserPointsFiles.split(",").foreach(file => {
+
+              val tilesDirectory = file + "_tiles_folder" // @temporary
+              val nrTiles = splitFilesIntoTiles(sc, file, tilesDirectory, batchSize)
+              val knnPicklePath = kNNpickleDir + "/" + file.split("/").last + "_pickle.pkl"
+
+              Predict.predict(sc, featureAssembler, tilesDirectory, nrTiles, queryKNNScriptPath,
+                buildKNNObjectScriptPath, buildPickles, knnPicklePath, model, file + "-classified")
+            })
         }
 
       case _ =>
