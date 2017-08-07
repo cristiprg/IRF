@@ -1,5 +1,6 @@
 package de.tu_berlin.dima
 
+import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
 import org.apache.spark.ml.feature.VectorAssembler
 import org.apache.spark.{Logging, SparkConf, SparkContext}
 import org.apache.spark.ml.wahoo.TrainModel
@@ -38,6 +39,7 @@ object IRF extends Logging{
     val buildPickles = if(args(5).toInt == 0) false else true
     val kNNpickleDir = args(6)
     val savedModelPath = args(7)
+    val doEvaluation = if(args(8).toInt == 0) false else true
 
     command match {
       case "train" | "predict" =>
@@ -60,6 +62,7 @@ object IRF extends Logging{
             var model: org.apache.spark.ml.wahoo.RandomForestClassificationModel = null
             val rf = new org.apache.spark.ml.wahoo.WahooRandomForestClassifier()
               .setLabelCol("label")
+              .setPredictionCol("prediction")
               .setFeaturesCol("indexedFeatures")
               .setNumTrees(100)
               .asInstanceOf[org.apache.spark.ml.wahoo.WahooRandomForestClassifier]
@@ -88,7 +91,7 @@ object IRF extends Logging{
               val knnPicklePath = kNNpickleDir + "/" + file.split("/").last + "_pickle.pkl"
 
               Predict.predict(sc, featureAssembler, tilesDirectory, nrTiles, queryKNNScriptPath,
-                buildKNNObjectScriptPath, buildPickles, knnPicklePath, model, file + "-classified")
+                buildKNNObjectScriptPath, buildPickles, knnPicklePath, model, file + "-classified", doEvaluation)
             })
         }
 

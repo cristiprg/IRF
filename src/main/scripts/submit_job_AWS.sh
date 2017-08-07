@@ -24,6 +24,7 @@ buildKNNObjectScriptPath="/home/hadoop/buildKNNObject.py"
 buildPickles="1"
 kNNpicklePath="/home/hadoop"
 savedModelPath="s3://spark-pointfeatures/savedModels/bildstein1.irfmodel"
+doEvaluation=0
 
 # Make sure to avoid "hadoop file/folder exists error"
 # Remove existing parquet files
@@ -53,7 +54,7 @@ done
 spark-submit --master yarn --class de.tu_berlin.dima.IRF \
         /home/hadoop/ml.jar predict\
         $predictLaserPointsFiles $batchSize $queryKNNScriptPath $buildKNNObjectScriptPath $buildPickles \
-        $kNNpicklePath $savedModelPath 
+        $kNNpicklePath $savedModelPath $doEvaluation
 
 # Clean up: delete temporary folders created for storing the tiled files
 for file in $(echo "${predictLaserPointsFiles}" | sed "s/,/ /g" )
