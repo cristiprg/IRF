@@ -36,8 +36,10 @@ object TrainModel extends Logging{
       val tileFilePath = tilesDirectory + "/" + suffix
       logInfo("Processing tile: " + tileFilePath)
 
+      logWarning("Extracting features for : " + tileFilePath)
       var df = PointFeaturesExtractor.extractPointFeatures(sc, tileFilePath,
         queryKNNScriptPath, buildKNNObjectScriptPath, buildPickles, kNNpicklePath + "-" + suffix)
+      logWarning("Finished exracting features for : " + tileFilePath)
 
       val timer = new TimeTracker()
       timer.start("training 0")
@@ -46,11 +48,15 @@ object TrainModel extends Logging{
 
       if (model == null) {
         logInfo("Fitting IRF model!")
+        logWarning("Fitting IRF model!")
         model = rf.fit(processedTrainingData)
+        logWarning("Finished fitting IRF model!")
       }
       else {
         logInfo("Updating IRF model!")
+        logWarning("Updating IRF model!")
         model = rf.update(model, processedTrainingData)
+        logWarning("Finished updating IRF model!")
       }
 
       var time = timer.stop("training 0")
