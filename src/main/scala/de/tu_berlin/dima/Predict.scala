@@ -82,8 +82,8 @@ object Predict extends Logging{
       .option("escape","\\")
       .save(outputFile)
 
-//    delete temporary file
-    "hdfs dfs -rm -r " + classifiedPointsParquetFile !
+//    delete temporary file and take care what command you use: hdfs if it is present, otherwise normal rm.
+    "bash -c 'command -v hdfs >/dev/null 2>&1 && hdfs dfs -rm -r " + classifiedPointsParquetFile + " || rm -r " + classifiedPointsParquetFile + "'" !
   }
 
   private def printEvalMetrics(predictionAndLabels: RDD[(Double, Double)]) : Unit = {
