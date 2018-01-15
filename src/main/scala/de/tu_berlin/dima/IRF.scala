@@ -42,7 +42,7 @@ object IRF extends Logging{
     val doEvaluation = if(args(8).toInt == 0) false else true
 
     command match {
-      case "train" | "predict" =>
+      case "train" | "predict" | "extractFeatures" =>
 
         val conf = new SparkConf()
           .setAppName("Wahoo")
@@ -93,10 +93,22 @@ object IRF extends Logging{
               Predict.predict(sc, featureAssembler, tilesDirectory, nrTiles, queryKNNScriptPath,
                 buildKNNObjectScriptPath, buildPickles, knnPicklePath, model, file + "-classified", doEvaluation)
             })
+
+          case "extractFeatures" =>
+            // Just for performing feature extraction.
+            // Whole files only, batchSize ignored!!!
+
+            // HDFS not supported, because the python script doesn't implement yet read_csv from HDFS, because we wait for mr. Lutz to install the corresponding package on ibm-power-1.
+
+            laserPointsFiles.split(",").foreach(file => {
+
+              val df = PointFeaturesExtractor.extractPointFeatures(sc, file, queryKNNScriptPath, buildKNNObjectScriptPath, buildPickles, "/home/hadoop/LidarPointFeatures/knnPickle.pkl")
+              df.write.format("com.databricks.spark.csv").save("/prigoana/"+file+"_features.csv")
+            })
         }
 
       case _ =>
-        println("ERROR: command must be either \"train\" or \"predict\"!")
+        println("ERROR: command must be either \"train\" or \"predict\" or \"extractFeatures\"!")
         sys.exit(-1)
     }
   }
